@@ -30,7 +30,7 @@ ENV broker_exchange son-kernel
 
 ADD son-mano-framework/son-mano-base /son-mano-base
 ADD son-sm-template /son-sm-template
-ADD son-ssm-examples/placement ssms/placement
+ADD son-ssm-examples/task ssms/task
 
 WORKDIR /son-mano-base
 Run python setup.py install
@@ -38,7 +38,7 @@ Run python setup.py install
 WORKDIR /son-sm-template
 RUN python setup.py install
 
-WORKDIR /ssms/placement
+WORKDIR /ssms/task
 RUN python setup.py develop
 
-CMD ["placement"]
+CMD ["task"]

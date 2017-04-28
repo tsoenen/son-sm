@@ -40,14 +40,14 @@ with open(path.join(here, 'README.md'), encoding='utf-8') as f:
     long_description = f.read()
 
 setup(
-    name='placement',
+    name='task',
 
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
     version='0.0.1',
 
-    description='Placement Service specific manager',
+    description='Task Service specific manager',
     long_description=long_description,
 
     # The project's main homepage.
@@ -63,7 +63,7 @@ setup(
     # What does your project relate to?
     keywords='NFV orchestrator',
 
-    packages=find_packages("placement"),
+    packages=find_packages("task"),
     install_requires=['pika', 'pytest', 'mongoengine', 'Flask>=0.10.1', 'flask-restful', 'requests'],
     setup_requires=['pytest-runner'],
 
@@ -71,6 +71,6 @@ setup(
     # "scripts" keyword. Entry points provide cross-platform support and allow
     # pip to create the appropriate form of executable for the target platform.
     entry_points={
-        'console_scripts': ['placement=placement.__main__:main'],
+        'console_scripts': ['task=task.__main__:main'],
     },
 )

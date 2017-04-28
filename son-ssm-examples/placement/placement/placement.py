@@ -33,27 +33,17 @@ from sonsmbase.smbase import sonSMbase
 logging.basicConfig(level=logging.INFO)
 LOG = logging.getLogger("ssm-placement-1")
 LOG.setLevel(logging.DEBUG)
-logging.getLogger("son-mano-base:messaging").setLevel(logging.INFO)
+logging.getLogger("son-mano-base:messaging").setLevel(logging.DEBUG)
 
 
 class PlacementSSM(sonSMbase):
-
     def __init__(self):
 
-        """
-        :param specific_manager_type: specifies the type of specific manager that could be either fsm or ssm.
-        :param service_name: the name of the service that this specific manager belongs to.
-        :param function_name: the name of the function that this specific manager belongs to, will be null in SSM case
-        :param specific_manager_name: the actual name of specific manager (e.g., scaling, placement)
-        :param id_number: the specific manager id number which is used to distinguish between multiple SSM/FSM
-        that are created for the same objective (e.g., scaling with algorithm 1 and 2)
-        :param version: version
-        :param description: description
-        """
         self.specific_manager_type = 'ssm'
-        self.service_name = 'service1'
+        self.service_name = 'default'
         self.specific_manager_name = 'placement'
         self.id_number = '1'
+
         self.version = 'v0.1'
         self.description = "Placement SSM"
 
@@ -64,36 +54,84 @@ class PlacementSSM(sonSMbase):
                                              version = self.version,
                                              description = self.description)
 
-
     def on_registration_ok(self):
-
         LOG.debug("Received registration ok event.")
 
-        # For testing, here we set the service uuid.
-        # In the actual scenario this should be set by SLM and SMR during the SSM instantiation.
-        self.sfuuid = '1234'
-
-        # Register to placement topic.
+        # Register to task topic and to place topic
         topic = 'placement.ssm.' + self.sfuuid
 
-        self.manoconn.register_async_endpoint(self.on_place,topic= topic)
+        self.manoconn.subscribe(self.on_place,topic= topic)
 
-        LOG.info("Subscribed to {0}".format(topic))
+        LOG.info("Subscribed to " + str(topic))
 
     def on_place(self, ch, method, properties, payload):
+        """
+        This method organises the placement calculation, and
+        provides the response for the SLM.
+        """
 
+        LOG.info("Placement started")
+        message = yaml.load(payload)
+        topology = message['topology']
+        nsd = message['nsd']
+        functions = message['vnfds']
 
-        if properties.app_id != self.specific_manager_id:
+        mapping = self.placement_alg(nsd, functions, topology)
 
-            LOG.info("Placement request received: {0}".format(payload))
-            payload = {'placement': ['from_ssm']}
-            LOG.info("Placement decision was sent: {0}".format(payload))
+        if mapping is None:
+            LOG.info("The mapping calculation has failed.")
+            message = {}
+            message['error'] = 'Unable to perform placement.'
+            message['status'] = 'ERROR'
+            
+        else:
+            LOG.info("The mapping calculation has succeeded.")
+            message = {}
+            message['error'] = None
+            message['status'] = "COMPLETED"
+            message['mapping'] = mapping
 
-            # send the status to the SMR (not necessary)
-            self.manoconn.publish(topic='specific.manager.registry.ssm.status', message=yaml.dump(
-                {'name': self.specific_manager_id, 'status': "Placement decision was sent: {0}".format(payload)}))
+        is_dict = isinstance(message, dict)
+        LOG.info("Type Dict: " + str(is_dict))
 
-        return (yaml.dump(payload))
+        payload = yaml.dump(message)
+        self.manoconn.notify('placement.ssm.' + self.sfuuid,
+                             payload,
+                             correlation_id=properties.correlation_id)
+
+        return
+
+    def placement_alg(self, nsd, functions, topology):
+        """
+        This is the default placement algorithm that is used if the SLM
+        is responsible to perform the placement
+        """
+        LOG.info("Mapping algorithm started.")
+        mapping = {}
+
+        for vnfd in functions:
+            needed_cpu = vnfd['virtual_deployment_units'][0]['resource_requirements']['cpu']['vcpus']
+            needed_mem = vnfd['virtual_deployment_units'][0]['resource_requirements']['memory']['size']
+            needed_sto = vnfd['virtual_deployment_units'][0]['resource_requirements']['storage']['size']
+
+            for vim in topology:
+                cpu_req = needed_cpu <= (vim['core_total'] - vim['core_used'])
+                mem_req = needed_mem <= (vim['memory_total'] - vim['memory_used'])
+
+                if cpu_req and mem_req:
+                    print('VNF ' + vnfd['instance_uuid'] + ' mapped on VIM ' + vim['vim_uuid'])
+                    mapping[vnfd['instance_uuid']] = {}
+                    mapping[vnfd['instance_uuid']]['vim'] = vim['vim_uuid']
+                    vim['core_used'] = vim['core_used'] + needed_cpu
+                    vim['memory_used'] = vim['memory_used'] + needed_mem
+                    break
+        
+        # Check if all VNFs have been mapped
+        if len(mapping.keys()) == len(functions):
+            LOG.info("Mapping succeeded: " + str(mapping))
+            return mapping
+        else:
+            return None
 
 def main():
     PlacementSSM()
