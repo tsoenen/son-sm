@@ -67,7 +67,7 @@ class CssFSM(sonSMbase):
         super(self.__class__, self).__init__(specific_manager_type=self.specific_manager_type,
                                              service_name=self.service_name,
                                              function_name=self.function_name,
-                                             specific_manager_nam=self.specific_manager_name,
+                                             specific_manager_name=self.specific_manager_name,
                                              id_number=self.id_number,
                                              version=self.version,
                                              description=self.description)
@@ -78,7 +78,7 @@ class CssFSM(sonSMbase):
         LOG.debug("Received registration ok event.")
 
         # send the status to the SMR
-        status = 'Subscribed to ' + topic ', waiting for alert message'
+        status = 'Subscribed, waiting for alert message'
         message = {'name': self.specific_manager_id,
                    'status': status}
         self.manoconn.publish(topic='specific.manager.registry.ssm.status',
@@ -87,7 +87,7 @@ class CssFSM(sonSMbase):
         # Subscribing to the topics that the fsm needs to listen on
         topic = "generic.fsm." + str(self.sfuuid)
         self.manoconn.subscribe(self.message_received, topic)
-        LOG.debug("Subscribed to " + topic + " topic.")
+        LOG.info("Subscribed to " + topic + " topic.")
 
     def message_received(self, ch, method, props, payload):
         """
@@ -95,7 +95,12 @@ class CssFSM(sonSMbase):
         """
 
         # Decode the content of the message
-        content = yaml.load(payload)
+        request = yaml.load(payload)
+
+        # Don't trigger on non-request messages
+        if "fsm_type" not in request.keys():
+            LOG.info("Received a non-request message, ignoring...")
+            return
 
         # Create the response
         response = None
@@ -103,37 +108,46 @@ class CssFSM(sonSMbase):
         # the 'fsm_type' field in the content indicates for which type of
         # fsm this message is intended. In this case, this FSM functions as
         # start, stop and configure FSM
-        if message["fsm_type"] = "start":
-            LOG.info("Start event received, content: " + message["content"])
-            response = self.start_event(content)
+        if str(request["fsm_type"]) == "start":
+            LOG.info("Start event received: " + str(request["content"]))
+            response = self.start_event(request["content"])
 
-        if message["fsm_type"] = "stop":
-            LOG.info("Stop event received, content: " + message["content"])
-            response = self.stop_event(content)
+        if str(request["fsm_type"]) == "stop":
+            LOG.info("Stop event received: " + str(request["content"]))
+            response = self.stop_event(request["content"])
 
-        if message["fsm_type"] = "configure":
-            LOG.info("Configure event received, content: " + message["content"])
-            response = self.configure_event(content)
+        if str(request["fsm_type"]) == "configure":
+            LOG.info("Config event received: " + str(request["content"]))
+            response = self.configure_event(request["content"])
+
+        if str(request["fsm_type"]) == "scale":
+            LOG.info("Scale event received: " + str(request["content"]))
+            response = self.scale_event(request["content"])
 
         # If a response message was generated, send it back to the FLM
         if response is not None:
             # Generated response for the FLM
+            LOG.info("Response to request generated:" + str(response))
             topic = "generic.fsm." + str(self.sfuuid)
             corr_id = props.correlation_id
             self.manoconn.notify(topic,
                                  yaml.dump(response),
                                  correlation_id=corr_id)
+            return
+
+        # If response is None:
+        LOG.info("Request received for other type of FSM, ignoring...")
 
     def start_event(self, content):
         """
         This method handles a start event.
         """
-
+        LOG.info("Performing life cycle start event")
+        LOG.info("content: " + str(content.keys()))
         # TODO: Add the start logic. The content is a dictionary that contains
         # the required data
 
-        nsr = content['nsr']
-        vnfrs = content['vnfrs']
+        vnfr = content["vnfr"]
 
         # Create a response for the FLM
         response = {}
@@ -147,12 +161,12 @@ class CssFSM(sonSMbase):
         """
         This method handles a stop event.
         """
-
+        LOG.info("Performing life cycle stop event")
+        LOG.info("content: " + str(content.keys()))
         # TODO: Add the stop logic. The content is a dictionary that contains
         # the required data
 
-        nsr = content['nsr']
-        vnfrs = content['vnfrs']
+        vnfr = content['vnfr']
 
         # Create a response for the FLM
         response = {}
@@ -166,14 +180,30 @@ class CssFSM(sonSMbase):
         """
         This method handles a configure event.
         """
-
+        LOG.info("Performing life cycle configure event")
+        LOG.info("content: " + str(content.keys()))
         # TODO: Add the configure logic. The content is a dictionary that
         # contains the required data
 
         nsr = content['nsr']
-        vnfrs = content['vnfr']
-        nsd = content['nsd']
-        vnfds = content['vnfd']
+        vnfrs = content['vnfrs']
+
+        # Create a response for the FLM
+        response = {}
+        response['status'] = 'COMPLETED'
+
+        # TODO: complete the response
+
+        return response
+
+    def scale_event(self, content):
+        """
+        This method handles a scale event.
+        """
+        LOG.info("Performing life cycle scale event")
+        LOG.info("content: " + str(content.keys()))
+        # TODO: Add the configure logic. The content is a dictionary that
+        # contains the required data
 
         # Create a response for the FLM
         response = {}

@@ -28,7 +28,6 @@ ENV mongo_port 27017
 ENV broker_host amqp://guest:guest@broker:5672/%2F
 ENV broker_exchange son-kernel
 
-ADD son-fsm-examples/configuration-start-stop /configuration-start-stop
 ADD son-mano-framework/son-mano-base /son-mano-base
 ADD son-sm-template /son-sm-template
 
@@ -37,6 +36,9 @@ Run python setup.py install
 
 WORKDIR /son-sm-template
 RUN python setup.py install
+
+WORKDIR /
+ADD son-fsm-examples/configuration-start-stop /configuration-start-stop
 
 WORKDIR /configuration-start-stop
 RUN python setup.py develop

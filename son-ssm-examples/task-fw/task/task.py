@@ -55,6 +55,9 @@ class TaskSSM(sonSMbase):
         self.specific_manager_name = 'task'
         self.id_number = '1'
         self.version = 'v0.1'
+        self.counter = 0
+        self.nsd = None
+        self.vnfs = None
         self.description = "An empty SSM"
 
         super(self.__class__, self).__init__(specific_manager_type= self.specific_manager_type,
@@ -71,33 +74,141 @@ class TaskSSM(sonSMbase):
 
         # Subscribe to the topic that the SLM will be sending on
         topic = 'generic.ssm.' + self.sfuuid
-        self.manoconn.subscribe(self.task_request, topic)
+        self.manoconn.subscribe(self.received_request, topic)
 
-    def task_request(self, ch, method, prop, payload):
+    def received_request(self, ch, method, prop, payload):
         """
         This method is called when the SLM is reaching out
         """
         content = yaml.load(payload)
-        LOG.info("task request received: " + str(content))
+
+        # Don't react to self-sent messages
+        if prop.app_id == self.specific_manager_id:
+            LOG.info("Received self-sent message, ignoring...")
+            return
+
+        # Don't react to messages that are not a request
+        if 'ssm_type' not in content.keys():
+            LOG.info("Received message that is not a request, ignoring...")
+            return
 
         # Only react on messages intended for the task SSM
-        if content['ssm_type'] is not 'task':
+        if str(content['ssm_type']) == 'task':
+            LOG.info("Received a task request")
+            self.task_request(prop.correlation_id, content)
             return
+
+        if str(content['ssm_type']) == 'configure':
+            LOG.info("Received a configure request")
+            self.configure_request(prop.correlation_id, content)
+            return
+
+        if str(content['ssm_type']) == 'monitor':
+            LOG.info("Received a monitor request")
+            self.monitor_request(prop.correlation_id, content)
+            return
+
+        # If the request type field doesn't match any of the above
+        LOG.info("type " + str(content['ssm_type']) + " not covered by SSM")
+
+    def task_request(self, corr_id, content):
+        """
+        This method handles a task request.
+        """
 
         # Update the received schedule
         schedule = content['schedule']
-        schedule.remove('vnf_chain')
-        schedule.remove('wan_configure')
+        schedule.remove('vnfs_start')
+#        schedule.remove('vnf_chain')
+#        schedule.remove('wan_configure')
+
+        schedule.insert
+        schedule.insert(7, 'vnfs_start')
+        schedule.insert(7, 'vnfs_config')
+        schedule.insert(7, 'configure_ssm')
 
         response = {'schedule': schedule, 'status': 'COMPLETED'}
+
+        LOG.info("task request responded to: " + str(response))
 
         # Sending a response
         topic = 'generic.ssm.' + self.sfuuid
         self.manoconn.notify(topic,
                              yaml.dump(response),
-                             correlation_id=prop.correlation_id)
+                             correlation_id=corr_id)
 
-        LOG.info("task request responded to: " + str(response))
+    def configure_request(self, corr_id, content):
+        """
+        This method handles a configuration request.
+        """
+
+        if content["workflow"] == 'instantiation':
+            msg = "Received a configure request for the instantiation workflow"
+            LOG.info(msg)
+            self.configure_instantiation(corr_id, content)
+
+    def configure_instantiation(self, corr_id, content):
+        """
+        This method creates the configure response for the instantiation
+        workflow.
+        """
+        response = {}
+        response['vnf'] = []
+
+        for vnf in content['functions']:
+            vnfd = vnf["vnfd"]
+            if vnfd['name'] == 'vtc-vnf':
+                new_entry = {}
+                new_entry['id'] = vnf['id']
+                new_entry['start'] = {'trigger': True,
+                                      'payload': {'foo': 'bar',
+                                                  'vnfr': 'bar'}}
+                response['vnf'].append(new_entry)
+            if vnfd['name'] == 'fw-vnf':
+                new_entry = {}
+                new_entry['id'] = vnf['id']
+                new_entry['start'] = {'trigger': False,
+                                      'payload': {}}
+                response['vnf'].append(new_entry)
+
+        LOG.info("Generated response: " + str(response))
+        # Sending a response
+        topic = 'generic.ssm.' + self.sfuuid
+        self.manoconn.notify(topic,
+                             yaml.dump(response),
+                             correlation_id=corr_id)
+
+    def monitor_request(self, corr_id, content):
+        """
+        This method handels the reception of monitor data
+        """
+        if 'nsd' in content.keys():
+            LOG.info("Received descriptors")
+            self.nsd = content['nsd']
+            self.vnfs = content['vnfs']
+
+        else:
+            if self.counter == 0:
+                message = {}
+                message['foo'] = 'bar'
+                message['service_instance_id'] = self.sfuuid
+                message['workflow'] = 'termination'
+
+                # message['schedule'] = ['vnfs_scale']
+                # message['vnf'] = []
+
+                # for vnf in self.vnfs:
+                #     if vnf['vnfd']['name'] == 'vtc-vnf':
+                #         new_entry = {}
+                #         new_entry['id'] = vnf['id']
+                #         new_entry['scale'] = {'trigger': True,
+                #                               'payload': {'foo': 'bar',
+                #                                           'vnfr': 'bar'}}
+                #         message['vnf'].append(new_entry)
+                topic = 'monitor.ssm.' + self.sfuuid
+                self.manoconn.notify(topic, yaml.dump(message))
+                self.counter = 1
+                LOG.info("Responded to monitoring request")
 
 
 def main():
